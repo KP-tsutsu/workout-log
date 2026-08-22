@@ -89,6 +89,12 @@ button, input, select, textarea {
 button {
   -webkit-tap-highlight-color: transparent;
   cursor: pointer;
+  /* iOS Safari は連打をダブルタップとみなして画面を拡大してしまう。
+     manipulation にするとボタン上でのダブルタップ拡大だけが無効になり、
+     ピンチでの拡大は今までどおり使える。 */
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 h1, h2, h3, p, ul, ol, figure { margin: 0; }

@@ -215,13 +215,67 @@ export function numberField({
     if (min !== null && next < min) next = min;
     input.value = String(round(next, decimals));
     clearError();
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+    // 押している間は input、指を離したときに change。
+    // 保存や再描画は change 側で拾うので、連続増減の途中で走らない。
+    input.dispatchEvent(new Event('input', { bubbles: true }));
   };
 
+  /**
+   * ＋ / − ボタン。
+   * click ではなく pointerdown で動かしているのは、iOS Safari が連打を
+   * ダブルタップと解釈して画面を拡大してしまうため (CSS の touch-action と併用)。
+   * 押しっぱなしにすると連続で増減するので、そもそも連打が要らない。
+   */
+  function stepButton(text, dir, aria) {
+    const btn = el('button', { type: 'button', text, 'aria-label': aria });
+    let holdTimer = null;
+    let repeatTimer = null;
+    let active = false;
+
+    const stop = () => {
+      clearTimeout(holdTimer);
+      clearInterval(repeatTimer);
+      holdTimer = null;
+      repeatTimer = null;
+      if (!active) return;
+      active = false;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); // 拡大・テキスト選択・フォーカス移動を止める
+      if (btn.setPointerCapture) {
+        try {
+          btn.setPointerCapture(e.pointerId);
+        } catch {
+          // 捕捉できなくても pointerup で止まるので問題ない
+        }
+      }
+      active = true;
+      bump(dir);
+      holdTimer = setTimeout(() => {
+        repeatTimer = setInterval(() => bump(dir), 100);
+      }, 450);
+    });
+
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      btn.addEventListener(ev, stop);
+    }
+    // ポインタを使えない環境 (キーボード操作など) 向けの保険
+    btn.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      bump(dir);
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    return btn;
+  }
+
   const stepper = el('div', { class: 'stepper' }, [
-    el('button', { type: 'button', text: '−', 'aria-label': `${label}を減らす`, onclick: () => bump(-1) }),
+    stepButton('−', -1, `${label}を減らす`),
     input,
-    el('button', { type: 'button', text: '＋', 'aria-label': `${label}を増やす`, onclick: () => bump(1) }),
+    stepButton('＋', 1, `${label}を増やす`),
   ]);
 
   const errorEl = el('div', { class: 'field-error', hidden: true });
