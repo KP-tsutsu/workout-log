@@ -2,7 +2,6 @@
 
 import * as state from './state.js';
 import { clear, toast } from './ui.js';
-import { initSync, offerRestoreIfEmpty } from './sync.js';
 import dashboard from './views/dashboard.js';
 import log from './views/log.js';
 import history from './views/history.js';
@@ -92,8 +91,7 @@ for (const btn of document.querySelectorAll('.tab')) {
 }
 
 // データが変わったら今の画面を描き直す。
-// '-quiet' は入力中の自動保存。画面を作り直すと入力欄のフォーカスが飛ぶので触らない
-// (同期は別途この通知を受け取っている)。
+// '-quiet' は入力中の自動保存。画面を作り直すと入力欄のフォーカスが飛ぶので触らない。
 state.subscribe((reason) => {
   if (rendering) return;
   if (typeof reason === 'string' && reason.endsWith('-quiet')) return;
@@ -115,19 +113,15 @@ async function boot() {
   syncTabButtons();
   render();
 
-  // 同期は画面が出てから。失敗しても記録の妨げにはしない。
-  initSync();
-  offerRestoreIfEmpty().catch((e) => console.warn('復元の確認に失敗', e));
-
-  // データを消されにくくするための申告。断られても動作は変わらない。
+  // 記録は端末の中にしか無いので、ブラウザに消されにくくしておく。
+  // 断られても動作は変わらない。
   if (navigator.storage && navigator.storage.persist) {
     navigator.storage.persisted().then((p) => {
       if (!p) navigator.storage.persist().catch(() => {});
     });
   }
 
-  // Service Worker は HTTPS か localhost でしか動かない。
-  // 自宅 Wi-Fi の http:// では登録しても失敗するだけなので、その時だけ登録する。
+  // オフラインで開けるようにする。HTTPS (GitHub Pages) と localhost でのみ動く。
   if ('serviceWorker' in navigator && window.isSecureContext) {
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('SW 登録失敗', e));
   }

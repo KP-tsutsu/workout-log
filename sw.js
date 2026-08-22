@@ -1,11 +1,15 @@
-// アプリ本体をキャッシュして、サーバーに繋がらなくても開けるようにする。
+// アプリ本体をキャッシュして、電波が無くても開けるようにする。
 //
-// 注意: Service Worker は HTTPS か localhost でしか動かない。
-// 自宅 Wi-Fi の http://192.168.x.x では登録されないため、いまの構成では
-// このファイルは使われない (js/app.js が isSecureContext のときだけ登録する)。
-// HTTPS 化するか公開ホスティングに移した時点で、そのまま効き始める。
+// 記録データはこの中に入らない (IndexedDB にあり Service Worker は触らない)。
+// ここで扱うのは HTML/CSS/JS と画像だけ。
+//
+// 更新の方針:
+//   - 画面そのもの (ナビゲーション) はネットワーク優先。オンラインなら常に最新が出る
+//   - CSS/JS/画像はキャッシュ優先 + 裏で取り直し。表示は速いまま、次回起動で新しくなる
+//   - それでも古いままなら、設定画面の「アプリを最新にする」で全部消して取り直せる
 
-const CACHE = 'workout-log-v1';
+const VERSION = 'v1';
+const CACHE = `workout-log-${VERSION}`;
 
 const SHELL = [
   './',
@@ -15,7 +19,6 @@ const SHELL = [
   'js/app.js',
   'js/db.js',
   'js/state.js',
-  'js/sync.js',
   'js/ui.js',
   'js/util.js',
   'js/charts.js',
@@ -32,7 +35,10 @@ const SHELL = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE)
-      .then((cache) => cache.addAll(SHELL))
+      // 1 つでも取れないと全部失敗するので、個別に入れて欠けは許容する。
+      .then((cache) => Promise.all(
+        SHELL.map((path) => cache.add(path).catch((e) => console.warn('キャッシュできず', path, e))),
+      ))
       .then(() => self.skipWaiting()),
   );
 });
@@ -46,31 +52,39 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+  const req = event.request;
+  if (req.method !== 'GET') return;
 
-  // バックアップ API はキャッシュしない。繋がらなければ素直に失敗させる。
-  if (url.pathname.includes('/api/')) return;
-  if (event.request.method !== 'GET') return;
+  const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  event.respondWith(
-    caches.match(event.request).then((hit) => {
-      if (hit) {
-        // 裏で最新を取りに行き、次回の起動に反映する。
-        event.waitUntil(
-          fetch(event.request)
-            .then((res) => (res.ok ? caches.open(CACHE).then((c) => c.put(event.request, res)) : null))
-            .catch(() => {}),
-        );
-        return hit;
-      }
-      return fetch(event.request).then((res) => {
-        if (res.ok) {
+  // 画面はネットワーク優先。オフラインのときだけキャッシュから返す。
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
           const copy = res.clone();
-          event.waitUntil(caches.open(CACHE).then((c) => c.put(event.request, copy)));
-        }
-        return res;
-      });
+          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          return res;
+        })
+        .catch(() => caches.match(req).then((hit) => hit || caches.match('index.html'))),
+    );
+    return;
+  }
+
+  // それ以外はキャッシュ優先 + 裏で取り直し。
+  event.respondWith(
+    caches.match(req).then((hit) => {
+      const fetching = fetch(req)
+        .then((res) => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          }
+          return res;
+        })
+        .catch(() => hit);
+      return hit || fetching;
     }),
   );
 });

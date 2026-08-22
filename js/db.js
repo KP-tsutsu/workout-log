@@ -1,7 +1,7 @@
 // IndexedDB のごく薄いラッパと、初回起動時に投入する種目プリセット。
 //
-// 記録は iPhone の中のこの DB が正本。Mac へのバックアップは sync.js が
-// dump() / restore() を使って行う。
+// 記録はこの DB にしか無い。持ち出しは dump() / restore() を通して
+// 設定画面の JSON 書き出し・読み込みが行う。
 
 export const DB_NAME = 'workout-log';
 export const DB_VERSION = 1;
@@ -306,12 +306,6 @@ export async function seedIfEmpty() {
   if (await count('exercises')) return false;
   await putMany('exercises', presetExercises());
   return true;
-}
-
-/** 全ストアが空か。Mac のバックアップからの復元を提案するかの判定に使う。 */
-export async function isEmpty() {
-  const counts = await Promise.all([count('body'), count('entries'), count('days')]);
-  return counts.every((n) => n === 0);
 }
 
 // --- バックアップ -----------------------------------------------------------

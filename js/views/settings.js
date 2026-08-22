@@ -2,16 +2,14 @@
 
 import * as state from '../state.js';
 import * as db from '../db.js';
-import { fetchLatest, getSyncStatus, onSyncChange, pullAndRestore, push } from '../sync.js';
 import {
   card, confirmSheet, dateField, el, list, listRow, numberField, toast,
 } from '../ui.js';
-import { fmtTrim, formatStamp, today } from '../util.js';
+import { daysBetween, fmtTrim, formatStamp, today, toDateStr } from '../util.js';
 
 function render(root, api) {
   root.appendChild(masterCard(api));
   root.appendChild(goalCard());
-  root.appendChild(syncCard());
   root.appendChild(backupCard());
   root.appendChild(aboutCard());
 }
@@ -74,86 +72,15 @@ function goalCard() {
   ]);
 }
 
-// --- Mac との同期 -----------------------------------------------------------
-
-// 画面は作り直されるので、前回の購読を捨ててから貼り直す。
-let unsubscribeSync = null;
-
-function syncCard() {
-  const status = getSyncStatus();
-  const dot = el('span', { class: 'sync-dot' });
-  const statusText = el('span', { class: 'sub' });
-
-  function paint(s) {
-    dot.className = `sync-dot ${s.online === true ? 'ok' : s.online === false ? 'off' : ''}`.trim();
-    statusText.textContent = s.inFlight
-      ? '送信中…'
-      : s.online === true
-        ? `接続中 ・ 最終バックアップ ${formatStamp(s.lastSyncAt)}`
-        : s.online === false
-          ? `Mac に接続できていません ・ 最終バックアップ ${formatStamp(s.lastSyncAt)}`
-          : '確認中…';
-  }
-  paint(status);
-  if (unsubscribeSync) unsubscribeSync();
-  unsubscribeSync = onSyncChange(paint);
-
-  const sendBtn = el('button', {
-    class: 'btn',
-    type: 'button',
-    text: 'Mac へ今すぐ送信',
-    onclick: async () => {
-      try {
-        await push({ quiet: false });
-      } catch {
-        // push 側でトーストを出している
-      }
-    },
-  });
-
-  const restoreBtn = el('button', {
-    class: 'btn',
-    type: 'button',
-    text: 'Mac から復元',
-    onclick: async () => {
-      let snapshot;
-      try {
-        snapshot = await fetchLatest();
-      } catch {
-        toast('Mac に接続できませんでした', 'error');
-        return;
-      }
-      if (!snapshot) {
-        toast('Mac にバックアップがありません', 'error');
-        return;
-      }
-      const bodyCount = (snapshot.stores.body || []).length;
-      const entryCount = (snapshot.stores.entries || []).length;
-      const ok = await confirmSheet({
-        title: 'Mac から復元',
-        message:
-          `${formatStamp(snapshot.receivedAt || snapshot.exportedAt)} 時点のバックアップ` +
-          `(体組成 ${bodyCount} 件・トレーニング ${entryCount} 件) で、この端末の記録を置き換えます。`,
-        okLabel: '置き換える',
-        danger: true,
-      });
-      if (!ok) return;
-      await pullAndRestore('replace');
-    },
-  });
-
-  return card('Mac との同期', [
-    el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--dim)' } }, [dot, statusText]),
-    el('div', { class: 'btn-row' }, [sendBtn, restoreBtn]),
-    el('p', {
-      class: 'field-hint',
-      text: '記録は自動で Mac に預けられます。ルーターの再起動などで接続先のアドレスが変わり記録が見えなくなった場合は、ここから戻せます。',
-    }),
-    el('p', { class: 'field-hint', text: `接続先: ${location.origin}` }),
-  ]);
-}
-
 // --- バックアップファイル ----------------------------------------------------
+
+/** 最後の書き出しからの経過日数。一度も書き出していなければ null。 */
+function daysSinceExport(prefs) {
+  if (!prefs.lastExportAt) return null;
+  const d = new Date(prefs.lastExportAt);
+  if (Number.isNaN(d.getTime())) return null;
+  return daysBetween(toDateStr(d), today());
+}
 
 function backupCard() {
   const exportBtn = el('button', {
@@ -212,15 +139,27 @@ function backupCard() {
     onclick: () => fileInput.click(),
   });
 
-  const prefs = state.getState().prefs;
+  const { prefs, body, entries } = state.getState();
+  const elapsed = daysSinceExport(prefs);
+  const hasData = body.length + entries.length > 0;
 
-  return card('バックアップファイル', [
+  // 記録の控えはこのファイルしか無いので、間が空いていたら目立たせる。
+  const stale = hasData && (elapsed === null || elapsed >= 30);
+  const status = elapsed === null
+    ? 'まだ一度も書き出していません'
+    : `最後の書き出し: ${formatStamp(prefs.lastExportAt)} (${elapsed}日前)`;
+
+  return card('バックアップ', [
+    stale
+      ? el('p', { class: 'note warn', text: `${status}。記録はこの端末の中にしかありません。ときどき書き出しておいてください。` })
+      : el('p', { class: 'field-hint', text: status }),
     el('div', { class: 'btn-row' }, [exportBtn, importBtn]),
     fileInput,
-    el('p', { class: 'field-hint', text: `最後の書き出し: ${formatStamp(prefs.lastExportAt)}` }),
     el('p', {
       class: 'note',
-      text: '書き出したファイルは「ファイル」アプリに保存されます。機種変更のときや、Mac ごと入れ替えるときはこれで持ち運べます。',
+      text:
+        '書き出したファイルは iPhone の「ファイル」アプリに保存されます。iCloud Drive の中に入れておけば、機種変更のときもそのまま読み込めます。\n' +
+        '記録はこの端末のブラウザの中だけにあり、どこにも送信されません。裏を返すと、端末を初期化したりブラウザのデータを消したりすると戻せません。',
     }),
   ]);
 }
@@ -244,12 +183,73 @@ function aboutCard() {
         el('div', { class: 'stat-value', text: String(exercises.length) }),
       ]),
     ]),
+    offlineStatus(),
     el('p', {
       class: 'note',
       text:
-        '記録はこの iPhone の中と、自宅の Mac のバックアップにだけ保存されます。インターネットには公開していないので、外出先やジムでは開けません。\n' +
-        'Mac でサーバーを起動していないときも、すでに開いている画面からの入力はできますが、新しく開くことはできません。',
+        'アプリの本体はインターネット上にありますが、記録はこの端末の中にだけ保存され、どこにも送信されません。\n' +
+        '一度開いたあとは電波が無くても動くので、ジムでもそのまま記録できます。',
     }),
+    updateButton(),
+  ]);
+}
+
+/** オフラインで開ける状態になっているか (Service Worker が有効かどうか)。 */
+function offlineStatus() {
+  const dot = el('span', { class: 'sync-dot' });
+  const text = el('span', { text: '確認中…' });
+  const row = el('div', {
+    style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--dim)' },
+  }, [dot, text]);
+
+  if (!('serviceWorker' in navigator) || !window.isSecureContext) {
+    dot.className = 'sync-dot off';
+    text.textContent = 'オフライン対応は無効です (HTTPS で開くと有効になります)';
+    return row;
+  }
+
+  navigator.serviceWorker.getRegistration().then((reg) => {
+    if (reg && reg.active) {
+      dot.className = 'sync-dot ok';
+      text.textContent = 'オフラインでも開けます';
+    } else {
+      dot.className = 'sync-dot off';
+      text.textContent = 'オフライン用の準備中です。もう一度開き直すと有効になります';
+    }
+  }).catch(() => {
+    dot.className = 'sync-dot off';
+    text.textContent = 'オフライン対応の状態を確認できませんでした';
+  });
+
+  return row;
+}
+
+/**
+ * アプリ本体を最新にする。
+ * オフライン用のキャッシュがあるぶん、更新を公開しても端末側が古いままのことが
+ * あるので、明示的に取り直せる口を用意しておく。記録には触らない。
+ */
+function updateButton() {
+  if (!('serviceWorker' in navigator) || !window.isSecureContext) return null;
+  return el('div', { style: { display: 'grid', gap: '6px' } }, [
+    el('button', {
+      class: 'btn block',
+      type: 'button',
+      text: 'アプリを最新にする',
+      onclick: async () => {
+        toast('最新版を取得しています…');
+        try {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((k) => caches.delete(k)));
+          const reg = await navigator.serviceWorker.getRegistration();
+          if (reg) await reg.update();
+        } catch (e) {
+          console.warn('更新に失敗', e);
+        }
+        location.reload();
+      },
+    }),
+    el('p', { class: 'field-hint', text: '記録は消えません。アプリの画面や機能を更新したときに使います。' }),
   ]);
 }
 
