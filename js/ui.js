@@ -221,10 +221,16 @@ export function numberField({
   };
 
   /**
-   * ＋ / − ボタン。
-   * click ではなく pointerdown で動かしているのは、iOS Safari が連打を
-   * ダブルタップと解釈して画面を拡大してしまうため (CSS の touch-action と併用)。
-   * 押しっぱなしにすると連続で増減するので、そもそも連打が要らない。
+   * ＋ / − ボタン。1 回押すと 1 段階、押しっぱなしで連続増減。
+   *
+   * click ではなく touchstart / mousedown を直接見ているのには理由がある:
+   *   - iOS Safari は連打をダブルタップとみなして画面を拡大してしまう。
+   *     touchstart で preventDefault するとこれが起きない
+   *   - ポインタイベントだと、指のわずかな動きを iOS が「スクロール開始」と
+   *     判断して pointercancel を投げ、長押しが即座に止まってしまう
+   *
+   * 指を離す判定は button ではなく document で拾う。押したまま指がボタンの
+   * 外に滑っても、離した時点で確実に止まるようにするため。
    */
   function stepButton(text, dir, aria) {
     const btn = el('button', { type: 'button', text, 'aria-label': aria });
@@ -239,29 +245,37 @@ export function numberField({
       repeatTimer = null;
       if (!active) return;
       active = false;
+      document.removeEventListener('touchend', stop);
+      document.removeEventListener('touchcancel', stop);
+      document.removeEventListener('mouseup', stop);
       input.dispatchEvent(new Event('change', { bubbles: true }));
     };
 
-    btn.addEventListener('pointerdown', (e) => {
-      e.preventDefault(); // 拡大・テキスト選択・フォーカス移動を止める
-      if (btn.setPointerCapture) {
-        try {
-          btn.setPointerCapture(e.pointerId);
-        } catch {
-          // 捕捉できなくても pointerup で止まるので問題ない
-        }
-      }
+    const start = (e) => {
+      if (active) return; // touchstart のあとの mousedown を無視する
+      if (e.cancelable) e.preventDefault();
       active = true;
+      document.addEventListener('touchend', stop);
+      document.addEventListener('touchcancel', stop);
+      document.addEventListener('mouseup', stop);
+
       bump(dir);
       holdTimer = setTimeout(() => {
-        repeatTimer = setInterval(() => bump(dir), 100);
+        repeatTimer = setInterval(() => {
+          // 画面が作り直されてボタンが消えたら、そこで打ち切る
+          if (!btn.isConnected) {
+            stop();
+            return;
+          }
+          bump(dir);
+        }, 100);
       }, 450);
-    });
+    };
 
-    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-      btn.addEventListener(ev, stop);
-    }
-    // ポインタを使えない環境 (キーボード操作など) 向けの保険
+    btn.addEventListener('touchstart', start, { passive: false });
+    btn.addEventListener('mousedown', start);
+
+    // キーボード操作向けの保険 (連続増減はしない)
     btn.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       e.preventDefault();

@@ -452,6 +452,11 @@ ul { list-style: none; padding: 0; }
   line-height: 1;
   display: grid;
   place-items: center;
+  /* 長押し中に指がわずかに動いてもスクロール扱いにされないよう、
+     このボタンの上ではブラウザ側のジェスチャーを一切使わせない。
+     長押しのメニュー (コールアウト) も出さない。 */
+  touch-action: none;
+  -webkit-touch-callout: none;
 }
 .stepper button:active { background: var(--accent-soft); }
 .stepper input {
