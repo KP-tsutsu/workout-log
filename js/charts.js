@@ -234,15 +234,56 @@ export function barChart({ bars, color = 'var(--c-train)', height = 140, unit = 
   return root;
 }
 
-/** 直近 weeks 週のヒートマップ (CSS グリッド)。days は Map<date, 強さ 0-1>。 */
-export function heatmap({ dates, level }) {
-  const grid = el('div', { class: 'heat' });
-  for (const date of dates) {
-    grid.appendChild(el('i', {
-      dataset: { level: String(level(date)) },
-      title: `${formatDateJa(date)}`,
-    }));
+/**
+ * 行 = 部位、列 = 週 のヒートマップ (CSS グリッド)。
+ *
+ * 曜日ではなく部位を縦軸にしているのは、「今週どこを鍛えたか / どこが空いて
+ * いるか」のほうが次の行動に繋がるため。マスの濃さはその週にその部位をやった
+ * 日数で、有酸素も同じ物差しで並ぶ。
+ *
+ * rows:  [{ key, label }]
+ * weeks: 週初め (月曜) の日付文字列の配列。左が古い
+ * count: (weekStart, rowKey) => その週にその部位をやった日数
+ */
+export function categoryHeatmap({ rows, weeks, count }) {
+  const grid = el('div', {
+    class: 'catheat',
+    style: { gridTemplateColumns: `44px repeat(${weeks.length}, 1fr)` },
+    role: 'table',
+    'aria-label': '部位ごとの週別トレーニング日数',
+  });
+
+  // 見出し行: 月が変わる列にだけ月を出し、右端は「今週」と示す
+  grid.appendChild(el('span'));
+  let prevMonth = null;
+  weeks.forEach((wk, i) => {
+    const month = parseDate(wk).getMonth() + 1;
+    const isLast = i === weeks.length - 1;
+    const showMonth = month !== prevMonth;
+    prevMonth = month;
+    grid.appendChild(
+      el('span', {
+        class: `colhead${isLast ? ' current' : ''}`,
+        text: isLast ? '今週' : showMonth ? `${month}月` : '',
+      }),
+    );
+  });
+
+  for (const row of rows) {
+    grid.appendChild(el('span', { class: 'rowhead', text: row.label }));
+    weeks.forEach((wk, i) => {
+      const n = count(wk, row.key);
+      const level = n === 0 ? 0 : n === 1 ? 2 : n === 2 ? 3 : 4;
+      grid.appendChild(
+        el('i', {
+          dataset: { level: String(level) },
+          class: i === weeks.length - 1 ? 'current' : '',
+          title: `${formatDateJa(wk)}の週 ・ ${row.label} ・ ${n}日`,
+        }),
+      );
+    });
   }
+
   return grid;
 }
 

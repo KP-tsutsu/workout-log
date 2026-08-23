@@ -2,7 +2,8 @@
 // 分かることを目的にしている。
 
 import * as state from '../state.js';
-import { barChart, heatmap, lineChart } from '../charts.js';
+import { CATEGORIES } from '../db.js';
+import { barChart, categoryHeatmap, lineChart } from '../charts.js';
 import { card, el, emptyState, listRow, progressBar, segmented, selectField, stat } from '../ui.js';
 import {
   addDays, daysBetween, entryVolume, estimate1RM, fmtMinutes, fmtPace, fmtSigned,
@@ -240,34 +241,43 @@ function trainingCard(api) {
     stat({ label: '通算', value: trained.size, unit: '日' }),
   ]);
 
-  // 直近 12 週 (84 日) のヒートマップ。週の頭に揃えて縦 7 マスにする。
-  const end = today();
-  const start = startOfWeek(addDays(end, -83));
-  const dates = [];
-  for (let d = start; d <= end; d = addDays(d, 1)) dates.push(d);
+  // 直近 12 週。列は週 (左が古い)、行は部位。
+  const thisWeek = startOfWeek(today());
+  const weeks = [];
+  for (let i = 11; i >= 0; i--) weeks.push(addDays(thisWeek, -7 * i));
 
-  const volumes = state.volumeByDate();
-  const maxVolume = Math.max(1, ...[...volumes.values()]);
-  const level = (date) => {
-    if (!trained.has(date)) return 0;
-    const v = volumes.get(date) || 0;
-    if (v <= 0) return 1;
-    const r = v / maxVolume;
-    return r > 0.66 ? 4 : r > 0.33 ? 3 : 2;
+  // 週 × 部位 ごとに、実施した「日」を数える。
+  // 同じ日に胸を 3 種目やっても 1 日として数える。
+  const daysByWeekCategory = new Map();
+  for (const e of entries) {
+    const ex = state.exerciseById(e.exerciseId);
+    if (!ex) continue;
+    const key = `${startOfWeek(e.date)}|${ex.category}`;
+    if (!daysByWeekCategory.has(key)) daysByWeekCategory.set(key, new Set());
+    daysByWeekCategory.get(key).add(e.date);
+  }
+  const count = (week, category) => {
+    const set = daysByWeekCategory.get(`${week}|${category}`);
+    return set ? set.size : 0;
   };
+
+  const swatch = (level) => el('i', { dataset: { level: String(level) } });
 
   return card('トレーニングの継続', [
     stats,
-    el('h3', { class: 'section-title', text: '直近 12 週' }),
-    heatmap({ dates, level }),
+    el('h3', { class: 'section-title', text: '部位ごとの週別トレーニング日数 (直近 12 週)' }),
+    categoryHeatmap({
+      rows: CATEGORIES.map((c) => ({ key: c, label: c })),
+      weeks,
+      count,
+    }),
     el('div', { class: 'heat-scale' }, [
-      '少ない',
-      el('i', { dataset: { level: '1' }, style: { background: 'color-mix(in srgb, var(--c-train) 30%, var(--card-2))' } }),
-      el('i', { dataset: { level: '2' }, style: { background: 'color-mix(in srgb, var(--c-train) 55%, var(--card-2))' } }),
-      el('i', { dataset: { level: '3' }, style: { background: 'color-mix(in srgb, var(--c-train) 78%, var(--card-2))' } }),
-      el('i', { dataset: { level: '4' }, style: { background: 'var(--c-train)' } }),
-      '多い',
+      'なし', swatch(0),
+      '1日', swatch(2),
+      '2日', swatch(3),
+      '3日以上', swatch(4),
     ]),
+    el('p', { class: 'field-hint', text: '横に並んでいるのが週、右端が今週です。空いている行が続いていたら、その部位がしばらく手つかずということです。' }),
     listRow({
       title: '履歴をカレンダーで見る',
       sub: '日を選ぶと内容の確認・編集ができます',

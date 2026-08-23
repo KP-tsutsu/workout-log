@@ -704,24 +704,44 @@ ul { list-style: none; padding: 0; }
 
 /* --- ヒートマップ・カレンダー -------------------------------------------- */
 
-.heat {
+/* 行 = 部位、列 = 週 のヒートマップ */
+.catheat {
   display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(7, 1fr);
   gap: 3px;
+  align-items: center;
 }
-.heat i {
+.catheat .rowhead {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--dim);
+  text-align: right;
+  padding-right: 5px;
+  white-space: nowrap;
+}
+.catheat .colhead {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--faint);
+  text-align: center;
+  white-space: nowrap;
+  overflow: visible;
+  padding-bottom: 2px;
+}
+.catheat .colhead.current { color: var(--accent); }
+.catheat i {
   aspect-ratio: 1;
   border-radius: 3px;
   background: var(--card-2);
   display: block;
+  min-height: 14px;
 }
-.heat i[data-level="1"] { background: color-mix(in srgb, var(--c-train) 30%, var(--card-2)); }
-.heat i[data-level="2"] { background: color-mix(in srgb, var(--c-train) 55%, var(--card-2)); }
-.heat i[data-level="3"] { background: color-mix(in srgb, var(--c-train) 78%, var(--card-2)); }
-.heat i[data-level="4"] { background: var(--c-train); }
-.heat-scale { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--faint); }
-.heat-scale i { width: 10px; height: 10px; border-radius: 3px; display: block; }
+.catheat i.current { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.catheat i[data-level="2"] { background: color-mix(in srgb, var(--c-train) 38%, var(--card-2)); }
+.catheat i[data-level="3"] { background: color-mix(in srgb, var(--c-train) 68%, var(--card-2)); }
+.catheat i[data-level="4"] { background: var(--c-train); }
+
+.heat-scale { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--faint); flex-wrap: wrap; }
+.heat-scale i { width: 10px; height: 10px; border-radius: 3px; display: block; flex: none; }
 
 .cal {
   display: grid;
