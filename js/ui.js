@@ -221,59 +221,128 @@ export function numberField({
   };
 
   /**
-   * ＋ / − ボタン。1 回押すと 1 段階、押しっぱなしで連続増減。
+   * ＋ / − ボタン。軽く 1 回押すと 1 段階、押しっぱなしで連続増減。
    *
-   * click ではなく touchstart / mousedown を直接見ているのには理由がある:
-   *   - iOS Safari は連打をダブルタップとみなして画面を拡大してしまう。
-   *     touchstart で preventDefault するとこれが起きない
-   *   - ポインタイベントだと、指のわずかな動きを iOS が「スクロール開始」と
-   *     判断して pointercancel を投げ、長押しが即座に止まってしまう
+   * 大事なのは「指が触れた瞬間には何もしない」こと。触れた時点で増減させると、
+   * スクロールしようとして指がボタンに乗っただけで値が変わってしまう。
+   * そのため:
+   *   - 増減するのは指を離したとき。しかも指が 10px 以上動いていたら
+   *     スクロールとみなして何もしない
+   *   - 長押しの連続増減も、動かずに 450ms 経ってから始める
    *
    * 指を離す判定は button ではなく document で拾う。押したまま指がボタンの
    * 外に滑っても、離した時点で確実に止まるようにするため。
    */
+  const MOVE_LIMIT = 10; // これ以上動いたらスクロール操作とみなす
+
   function stepButton(text, dir, aria) {
     const btn = el('button', { type: 'button', text, 'aria-label': aria });
     let holdTimer = null;
     let repeatTimer = null;
-    let active = false;
+    let tracking = false;
+    let moved = false;
+    let bumped = false;
+    let startX = 0;
+    let startY = 0;
+    let lastTouchAt = 0;
 
-    const stop = () => {
+    const clearTimers = () => {
       clearTimeout(holdTimer);
       clearInterval(repeatTimer);
       holdTimer = null;
       repeatTimer = null;
-      if (!active) return;
-      active = false;
-      document.removeEventListener('touchend', stop);
-      document.removeEventListener('touchcancel', stop);
-      document.removeEventListener('mouseup', stop);
-      input.dispatchEvent(new Event('change', { bubbles: true }));
     };
 
-    const start = (e) => {
-      if (active) return; // touchstart のあとの mousedown を無視する
-      if (e.cancelable) e.preventDefault();
-      active = true;
-      document.addEventListener('touchend', stop);
-      document.addEventListener('touchcancel', stop);
-      document.addEventListener('mouseup', stop);
+    const settle = () => {
+      clearTimers();
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onTouchEnd);
+      document.removeEventListener('touchcancel', onCancel);
+      document.removeEventListener('mouseup', onMouseUp);
+      const changed = bumped;
+      tracking = false;
+      moved = false;
+      bumped = false;
+      if (changed) input.dispatchEvent(new Event('change', { bubbles: true }));
+    };
 
-      bump(dir);
+    // 動かずに 450ms 経ったら連続増減を始める
+    const armHold = () => {
       holdTimer = setTimeout(() => {
+        if (!tracking || moved) return;
+        bump(dir);
+        bumped = true;
         repeatTimer = setInterval(() => {
-          // 画面が作り直されてボタンが消えたら、そこで打ち切る
-          if (!btn.isConnected) {
-            stop();
+          if (!btn.isConnected || moved) {
+            settle();
             return;
           }
           bump(dir);
+          bumped = true;
         }, 100);
       }, 450);
     };
 
-    btn.addEventListener('touchstart', start, { passive: false });
-    btn.addEventListener('mousedown', start);
+    function onMove(e) {
+      if (!tracking || moved) return;
+      const t = e.touches && e.touches[0];
+      if (!t) return;
+      if (Math.abs(t.clientX - startX) > MOVE_LIMIT || Math.abs(t.clientY - startY) > MOVE_LIMIT) {
+        moved = true; // スクロール操作。増減はしない
+        clearTimers();
+      }
+    }
+
+    function onTouchEnd() {
+      if (!tracking) return;
+      if (!moved && !bumped) {
+        bump(dir); // 動かずに離した = 軽いタップ
+        bumped = true;
+      }
+      settle();
+    }
+
+    // ブラウザがスクロールを始めるとこれが飛んでくる。増減はしない。
+    function onCancel() {
+      if (!tracking) return;
+      moved = true;
+      settle();
+    }
+
+    function onMouseUp() {
+      if (!tracking) return;
+      if (!bumped) {
+        bump(dir);
+        bumped = true;
+      }
+      settle();
+    }
+
+    btn.addEventListener('touchstart', (e) => {
+      if (tracking) return;
+      const t = e.touches && e.touches[0];
+      if (!t) return;
+      lastTouchAt = Date.now();
+      tracking = true;
+      moved = false;
+      bumped = false;
+      startX = t.clientX;
+      startY = t.clientY;
+      document.addEventListener('touchmove', onMove, { passive: true });
+      document.addEventListener('touchend', onTouchEnd);
+      document.addEventListener('touchcancel', onCancel);
+      armHold();
+    }, { passive: true }); // preventDefault しないので、スクロールを妨げない
+
+    btn.addEventListener('mousedown', () => {
+      if (tracking) return;
+      if (Date.now() - lastTouchAt < 700) return; // タッチ由来の合成マウスイベント
+      tracking = true;
+      moved = false;
+      bumped = false;
+      document.addEventListener('mouseup', onMouseUp);
+      armHold();
+    });
 
     // キーボード操作向けの保険 (連続増減はしない)
     btn.addEventListener('keydown', (e) => {

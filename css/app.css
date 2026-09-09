@@ -452,10 +452,11 @@ ul { list-style: none; padding: 0; }
   line-height: 1;
   display: grid;
   place-items: center;
-  /* 長押し中に指がわずかに動いてもスクロール扱いにされないよう、
-     このボタンの上ではブラウザ側のジェスチャーを一切使わせない。
-     長押しのメニュー (コールアウト) も出さない。 */
-  touch-action: none;
+  /* 縦スクロールは通す。ボタンの上に指が乗ってもスクロールできないと、
+     画面の左右端が「動かない帯」になって使いにくいため。
+     誤操作は JS 側で「動かずに離したときだけ増減する」ことで防いでいる。
+     ダブルタップ拡大と長押しメニューはここで止める。 */
+  touch-action: pan-y;
   -webkit-touch-callout: none;
 }
 .stepper button:active { background: var(--accent-soft); }
@@ -792,6 +793,25 @@ ul { list-style: none; padding: 0; }
 }
 .sync-dot.ok { background: var(--good); }
 .sync-dot.off { background: var(--warn); }
+
+/* 読み取り専用の項目一覧 (目標の表示など) */
+.kv { display: flex; flex-direction: column; }
+.kv-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.kv-row:last-child { border-bottom: 0; }
+.kv-key { font-size: 13px; color: var(--dim); font-weight: 600; flex: none; }
+.kv-value {
+  margin-left: auto;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
 
 .note {
   font-size: 12px;

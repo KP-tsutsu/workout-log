@@ -8,7 +8,7 @@
 //   - CSS/JS/画像はキャッシュ優先 + 裏で取り直し。表示は速いまま、次回起動で新しくなる
 //   - それでも古いままなら、設定画面の「アプリを最新にする」で全部消して取り直せる
 
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = `workout-log-${VERSION}`;
 
 const SHELL = [

@@ -5,11 +5,11 @@ import * as db from '../db.js';
 import {
   card, confirmSheet, dateField, el, list, listRow, numberField, toast,
 } from '../ui.js';
-import { daysBetween, fmtTrim, formatStamp, today, toDateStr } from '../util.js';
+import { daysBetween, fmtTrim, formatDateJa, formatStamp, today, toDateStr } from '../util.js';
 
 function render(root, api) {
   root.appendChild(masterCard(api));
-  root.appendChild(goalCard());
+  root.appendChild(goalCard(api));
   root.appendChild(backupCard());
   root.appendChild(aboutCard());
 }
@@ -34,9 +34,53 @@ function masterCard(api) {
 
 // --- 目標 -------------------------------------------------------------------
 
-function goalCard() {
-  const g = state.getState().goals;
+// 目標はめったに変えないうえ、うっかり変わっても何週間も気づかない。
+// 既定では読むだけにして、「編集」を押したときだけ入力欄を出す。
+let goalEditing = false;
 
+function goalCard(api) {
+  const g = state.getState().goals;
+  const current = state.latestBody('weight');
+  const hint = current && g.targetWeight !== null
+    ? `現在 ${fmtTrim(current.value)}kg → 目標まで ${fmtTrim(Math.max(0, current.value - g.targetWeight))}kg`
+    : '記録を入れると、ここに目標までの差が出ます。';
+
+  if (!goalEditing) return goalCardReadOnly(g, hint, api);
+  return goalCardEditing(g, hint, api);
+}
+
+/** 読むだけの表示。入力欄が無いので、スクロール中に値が変わることがない。 */
+function goalCardReadOnly(g, hint, api) {
+  const rows = [
+    ['目標体重', g.targetWeight === null ? '未設定' : `${fmtTrim(g.targetWeight)} kg`],
+    ['目標体脂肪率', g.targetBodyFat === null ? '未設定' : `${fmtTrim(g.targetBodyFat)} %`],
+    ['目標日', g.targetDate ? formatDateJa(g.targetDate, { withYear: true }) : '未設定'],
+    ['身長', g.height === null ? '未設定' : `${fmtTrim(g.height)} cm`],
+    ['開始体重', g.startWeight === null
+      ? (state.startValue('weight') === null ? '未設定' : `${fmtTrim(state.startValue('weight'))} kg (最初の記録)`)
+      : `${fmtTrim(g.startWeight)} kg`],
+  ];
+
+  const editBtn = el('button', {
+    class: 'icon-btn',
+    type: 'button',
+    text: '編集',
+    onclick: () => {
+      goalEditing = true;
+      api.rerender();
+    },
+  });
+
+  return card('目標', [
+    el('div', { class: 'kv' }, rows.map(([k, v]) => el('div', { class: 'kv-row' }, [
+      el('span', { class: 'kv-key', text: k }),
+      el('span', { class: 'kv-value', text: v }),
+    ]))),
+    el('p', { class: 'field-hint', text: hint }),
+  ], editBtn);
+}
+
+function goalCardEditing(g, hint, api) {
   const targetWeight = numberField({ label: '目標体重', unit: 'kg', step: 0.5, decimals: 1, value: g.targetWeight, placeholder: '未設定' });
   const targetFat = numberField({ label: '目標体脂肪率', unit: '%', step: 0.5, decimals: 1, value: g.targetBodyFat, placeholder: '未設定' });
   const targetDate = dateField({ label: '目標日 (任意)', value: g.targetDate, hint: '設定すると必要ペースと予測達成日が出ます' });
@@ -57,10 +101,17 @@ function goalCard() {
   for (const f of [targetWeight, targetFat, height, startWeight]) f.input.addEventListener('change', commit);
   targetDate.input.addEventListener('change', commit);
 
-  const current = state.latestBody('weight');
-  const hint = current && g.targetWeight !== null
-    ? `現在 ${fmtTrim(current.value)}kg → 目標まで ${fmtTrim(Math.max(0, current.value - g.targetWeight))}kg`
-    : '記録を入れると、ここに目標までの差が出ます。';
+  const doneBtn = el('button', {
+    class: 'icon-btn',
+    type: 'button',
+    text: '完了',
+    onclick: () => {
+      commit();
+      goalEditing = false;
+      api.rerender();
+      toast('目標を保存しました', 'good');
+    },
+  });
 
   return card('目標', [
     targetWeight.root,
@@ -69,7 +120,13 @@ function goalCard() {
     height.root,
     startWeight.root,
     el('p', { class: 'field-hint', text: hint }),
-  ]);
+    el('button', {
+      class: 'btn block',
+      type: 'button',
+      text: '完了',
+      onclick: () => doneBtn.click(),
+    }),
+  ], doneBtn);
 }
 
 // --- バックアップファイル ----------------------------------------------------
