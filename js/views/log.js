@@ -328,9 +328,18 @@ export function openExercisePicker(date, api) {
       draw();
       return [search, results];
     },
+    // 種目が多いとシートが縦に長くなり、ブラウザのアドレスバーの出入りで
+    // 上端の「キャンセル」に届かなくなることがある。下にも閉じる口を置く。
     footer: [
       el('button', {
-        class: 'btn block',
+        class: 'btn',
+        type: 'button',
+        text: '閉じる',
+        style: { flex: '0 0 96px' },
+        onclick: () => handle.close(),
+      }),
+      el('button', {
+        class: 'btn',
         type: 'button',
         text: '＋ 新しい種目を登録',
         onclick: () => {

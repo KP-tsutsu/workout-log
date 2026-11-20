@@ -209,6 +209,12 @@ export function openExerciseEditor(exercise, onDone) {
     title: isNew ? '種目を追加' : '種目を編集',
     right: '保存',
     onRight: save,
+    // 画面下に必ず残るボタンを置く。このシートは中身が長く、ブラウザの
+    // アドレスバーの出入りで上端のボタンに届かなくなることがあるため。
+    footer: [
+      el('button', { class: 'btn', type: 'button', text: '閉じる', onclick: () => handle.close() }),
+      el('button', { class: 'btn primary', type: 'button', text: '保存', onclick: save }),
+    ],
     body: [
       card(null, [
         nameField.root,
